@@ -1,0 +1,169 @@
+---
+title: "SupplementV2"
+format: docx
+---
+
+```{r, output=FALSE, echo=FALSE, warning=FALSE}
+library(reshape2)
+library(scico)
+library(dplyr)
+library(tidyr)
+library(lubridate)
+library(ggplot2)
+library(ggupset)
+library(stringr)
+library(kableExtra)
+
+load("../data/ftd_h120622.rda") # ../ goes up a level since qmd. root is different
+load("../data/ftd_c120622.rda")
+
+source("ftd_functions.R")
+```
+
+# Supplemental materials for "Etiology of acute lower respiratory illness hospitalizations among infants in four countries"
+
+## Prior specification
+
+To fit this model we needed to specify priors for two parameters: the population etiologic fraction (ETI) and the true positive rate (TPR). For the population etiologic fraction we used an overall Uniform (symmetric Dirichlet distribution) so that no pathogen was favored. For the true positive rate (TPR) each pathogen was independently assigned a Beta prior based on quantiles representing the sensitivity of detecting the pathogen via RT-PCR of NP/OP swabs. Specifically, this was a range of quantiles with a lower bound of $0.5$ and an upper bound of $0.99$.
+
+We subsequently revised the TPR prior for RSV to have a lower bound of $0.75$ to improve model fit (as assessed from posterior predictive checks). Specificity was derived from the data itself, specifically as $specificity = 1-sensitivity$ among the non-ill community controls.
+
+{{< pagebreak >}}
+
+## Supplemental Figure 1 -- Upset plot showing the frequency of co-infection combinations
+
+![](../figures/supp_fig1.svg)
+
+{{< pagebreak >}}
+
+## Supplemental Figure 2 -- PCR positives over time
+
+This figure displays the number of PCR positives for each pathogen across sites by month. The number is scaled to be the proportion of the maximum number of positives over 1 month ($number of PCR positives/max(number of PCR positives$) per pathogen and study site.
+
+![](../figures/supp_fig2.svg)
+
+{{< pagebreak >}}
+
+## Supplemental Figure 3 -- ETI by site
+
+![](../figures/supp_fig3V2.svg)
+
+{{< pagebreak >}}
+
+## Supplemental Table 1 -- Prevalence by site
+
+```{r, echo=F, output=T, warning=FALSE, fig.width=16}
+## still need to fix note/warning from dplyr 
+
+c_table_s1 <- suppressMessages(table_vars_s(ftd_c, country_id))
+h_table_s1 <- suppressMessages(table_vars_s(ftd_h, country_id))
+
+table_s1_tot <- suppressMessages(bind_rows(h_table_s1, c_table_s1))
+
+suppressMessages(prev_tables(table_s1_tot, country_id)%>%flextable::autofit())
+
+```
+
+{{< pagebreak >}}
+
+## Supplemental Table -- Prevalence by age
+
+```{r, echo=F, output=T, warning=F, fig.width=16}
+c_table_s2 <- suppressMessages(table_vars_s(ftd_c, age_cat))
+h_table_s2 <- suppressMessages(table_vars_s(ftd_h, age_cat))
+
+table_s2_tot <- suppressMessages(bind_rows(h_table_s2, c_table_s2))
+
+suppressMessages(prev_tables(table_s2_tot, age_cat))
+
+```
+
+{{< pagebreak >}}
+
+## Supplemental Table 2 -- Symptom development among non-ill controls
+
+```{r, echo=F, output=T, warning=F, fig.width=16}
+## read in non-ill data
+load("../data/ftd_c020722.rda")
+  
+non_ill_follow <- ftd_c%>%
+  dplyr::filter(cf_contact1=="Yes")%>%
+  mutate(test_pos = case_when(
+    num_in >0 ~1,
+    num_in==0~0
+  ),
+  symp_resp = case_when(
+    cf_symptom_nose=="Yes"|
+      cf_symptom_cough=="Yes"|
+      cf_symptom_breath=="Yes"|
+      cf_symptom_wheeze=="Yes"~1,
+    T~0
+  ))
+  
+non_ill_follow$dev_symp <- as.numeric(apply(non_ill_follow[,51:57], 1, function(x) {ifelse(any(x=="Yes"), 1, 0)}))
+non_ill_follow$symp_nonresp <- ifelse(non_ill_follow$dev_symp==1 & non_ill_follow$symp_resp==0,1,0)
+
+suppressMessages(non_ill_follow%>%
+  select(dev_symp, all_of(vir_ord))%>%
+  mutate(dev_symp2 = case_when(
+    dev_symp == 0 ~ "Did not develop symptoms",
+    dev_symp ==1 ~ "Developed symptoms"
+  ))%>%
+    select(-dev_symp)%>%
+     rename_with(~  vir_labs, .cols = which(colnames(.)%in%vir_ord))%>%
+  # gtsummary::tbl_strata(
+  #   strata = dev_symp,
+  #   .tbl_fun =
+  #     ~.x %>%
+      gtsummary::tbl_summary(
+        by = dev_symp2,
+        statistic = list(gtsummary::all_continuous() ~ "{n} ({p}%)"),
+        digits = gtsummary::all_continuous() ~ 2
+      )%>%
+    gtsummary::as_flex_table())
+
+```
+
+{{< pagebreak >}}
+
+## Supplemental Table 3 -- ETI values for all pathogens by site
+
+```{r, echo=F, output=T, warning=F}
+site_eti <- readr::read_csv("../data/site_estimates.csv")%>%
+  mutate(eti_prop = round(eti_mean, 3)*100,
+         lcl_prop = round(ci_025, 3)*100,
+         ucl_prop = round(ci_975, 3)*100)
+
+alb <-table_site_eti("Albania")
+jord <- table_site_eti("Jordan")
+nica <-table_site_eti("Nicaragua")
+phil <- table_site_eti("Philippines")
+
+tot_eti <- bind_cols(alb, jord, nica, phil)
+
+
+tot_eti%>%
+  flextable::flextable()%>%
+  flextable::set_header_labels(cause = " ", 
+                    tot_eti...2 ="ETI (95% CrI)", 
+                    tot_eti...3="ETI (95% CrI)", 
+                    tot_eti...4="ETI (95% CrI)", 
+                    tot_eti...5="ETI (95% CrI)")%>%
+  flextable::add_header_row(values = c(" ", "Albania", "Jordan", "Nicaragua", "Philippines"),
+                 colwidths = c(rep(1,5)))%>%
+  flextable::footnote(i=2, j=2:5,
+           value = flextable::as_paragraph(
+              c("Population Etiologic Fraction (95% Credible Interval)")),
+            ref_symbols = c("a"),
+            part = "header")
+  
+
+```
+
+{{< pagebreak >}}
+
+## Sensitivity analysis
+
+As can be seen in Figure 1 of the manuscript, there were some periods in which the enrollment of non-ill controls was not well-matched to enrollment of hospitalized infants. Specifically, the beginning of the study period in Nicaragua and the middle of the study period in the Philippines appeared poorly matched. To assess the potential for this to bias our results, we excluded data from those time periods and reran the NPLCM. We have included the following figure showing the results of this sensitivity analysis. The population etiologic fractions observed in the sensitivity analysis (below) were largely consistent with those observed in the primary analysis (Supplemental Table 3).
+
+![](../figures/sens_site_etiV2.svg)
